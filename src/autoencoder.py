@@ -2,6 +2,9 @@
 # Dataset : CIFAR10
 # Requires : PIL, matplotlib
 # Inspired by https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
+# To compress data : net.encode(data)
+# To decompress data : net.decode(data)
+# To mutate data : net(data)
 
 import os
 import numpy as np
@@ -43,11 +46,15 @@ class Net(nn.Module):
         self.decoder1 = Linear(latent_size, hidden_size)
         self.decoder2 = Linear(hidden_size, 3 * im_width * im_height)
     
-    def forward(self, x):
+    def encode(self, x):
         x = x.view([-1])
         
         encoded = ReLU()(self.encoder1(x))
         encoded = Sigmoid()(self.encoder2(encoded))
+
+        return encoded
+
+    def decode(self, encoded):
         decoded = ReLU()(self.decoder1(encoded))
         decoded = Sigmoid()(self.decoder2(decoded))
         
@@ -55,13 +62,16 @@ class Net(nn.Module):
 
         return decoded
 
+    def forward(self, x):
+        return self.decode(self.decode(x))
+
 
 # Hyper params
 latent_size = 32 * 32 // 3
-epochs = 3
+epochs = 1
 batch_size = 4
 hidden_size = 512
-train_or_test = 'test'
+train_or_test = 'train'
 path = models_dir + '/autoencoder'
 
 # Training device
@@ -113,9 +123,6 @@ if train_or_test == 'train':
                 
                 avg_loss = 0.0
 
-            if i == 1000:
-                break
-
         # Save
         T.save(net.state_dict(), path)
 
@@ -136,4 +143,3 @@ else:
     preds = T.cat([net(images[i].to(device)).view(1, 3, 32, 32).cpu() for i in range(batch_size)])
     preds = T.tensor(preds)
     gridshow(torchvision.utils.make_grid(preds))
-
