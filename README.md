@@ -6,3 +6,4 @@ A collection of AIs made with PyTorch
 
 - [Linear regression](src/lowlevel.py) : Linear regression using only AutoGrad with momentum optimizer, MSE loss.
 - [Auto Encoder](src/autoencoder.py) : An auto encoder with pytorch.nn module for CIFAR10 images.
+- [Deep Auto Encoder](src/deep_autoencoder.py) : An auto encoder with convolutional layers which generates MNIST digits.
