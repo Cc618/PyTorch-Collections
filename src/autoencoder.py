@@ -17,7 +17,7 @@ import torchvision
 from torchvision.datasets import CIFAR10
 from torch.nn import ReLU, Linear, Sigmoid
 import PIL.Image as im
-from globals import dataset_dir, models_dir
+from utils import dataset_dir, models_dir
 
 
 # Displays an image (3 dim tensor)
