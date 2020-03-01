@@ -99,4 +99,5 @@ denoised, _ = iter(loader).next()
 denoised = denoised.to(device)
 
 noised = add_noise(denoised)
-stack_show([denoised, noised, net(noised)], ['Ground Truth', 'Input', 'Output'], bw=True)
+with T.no_grad():
+    stack_show([denoised, noised, net(noised)], ['Ground Truth', 'Input', 'Output'], bw=True)

@@ -146,6 +146,7 @@ else:
     gridshow(torchvision.utils.make_grid(images))
 
     # Show predictions
-    preds = T.cat([net(images[i].view(1, 1, 28, 28).to(device)).view(1, 1, 28, 28).cpu() for i in range(batch_size)])
+    with T.no_grad():
+        preds = T.cat([net(images[i].view(1, 1, 28, 28).to(device)).view(1, 1, 28, 28).cpu() for i in range(batch_size)])
     preds = T.tensor(preds)
     gridshow(torchvision.utils.make_grid(preds))
