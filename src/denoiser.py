@@ -1,4 +1,4 @@
-# GAN which generates handwritten digits
+# Denoiser for handwritten digits
 
 import os
 import numpy as np
