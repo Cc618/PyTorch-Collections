@@ -1,8 +1,6 @@
 # Denoiser for handwritten digits
 
 import os
-import numpy as np
-import matplotlib.pyplot as plt
 import torch as T
 import torch.distributions as D
 import torch.nn.functional as F
