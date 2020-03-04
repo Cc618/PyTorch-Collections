@@ -106,7 +106,7 @@ if train_or_test == 'train':
                 optim.zero_grad()
 
                 # Predictions
-                x = inputs[0].to(device)
+                x = inputs[batch].to(device)
                 y = net(x)
 
                 # Back prop
