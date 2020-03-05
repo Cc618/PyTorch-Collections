@@ -37,6 +37,7 @@ def img_load(path):
 def img_div(img, div_width, div_height):
     '''
         Divides an image in multiple subdivisions (subimages)
+    - img : List of tensors
     - return : List of tensors
     !!! The borders may be ignored if the image's dimension is
     !!! not a multiple of div_width / div_height
@@ -49,6 +50,31 @@ def img_div(img, div_width, div_height):
             divs.append(div)
 
     return divs
+
+
+def img_undiv(divs, width, device):
+    '''
+        Inverse of img_div, creates an image from subdivisions
+    - width : Number of divs per width
+    - return : Tensor
+    - !!! Only for RGB images
+    '''
+    if len(divs) == 0:
+        return
+
+    if len(divs) % width != 0:
+        raise Exception("width argument doesn't match the number of divs")
+
+    height = len(divs) // width
+    _, div_width, div_height = divs[0].size()
+    img = T.empty(3, div_width * width, div_height *height)
+    
+    for y in range(height):
+        for x in range(width):
+            div = divs[y * width + x]
+            img[:, x * div_width : (x + 1) * div_width, y * div_height : (y + 1) * div_height] = div
+
+    return img
 
 
 # Display #

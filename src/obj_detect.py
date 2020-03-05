@@ -1,5 +1,5 @@
 # Detects where cats or dogs are within an image
-# Cats are red, dogs are blue
+# Presented as a heat map, cats are red, dogs are blue
 # Uses ./classification's network to detect cats / dogs
 # The model must be already trained
 
