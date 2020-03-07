@@ -27,3 +27,6 @@ A collection of AIs made with PyTorch
 
 ![GAN](res/gan.jpeg "GAN")
 
+### REINFORCE
+
+![REINFORCE](res/reinforce.gif "REINFORCE")

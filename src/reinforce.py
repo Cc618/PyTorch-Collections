@@ -186,7 +186,7 @@ env_id = 'CartPole-v0'
 train = False
 test = False
 epochs = 40
-n_display_games = 4
+n_display_games = 1
 tests = 20
 lr = 1e-3
 discount_rate = .96
@@ -213,5 +213,7 @@ if test:
     test_batch(env, games=tests)
 
 # Display
+# To create a video
+# env = gym.wrappers.Monitor(env, './video')
 for _ in range(n_display_games):
     test_game(env, True)
