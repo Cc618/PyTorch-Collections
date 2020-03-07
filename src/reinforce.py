@@ -1,5 +1,6 @@
 # REINFORCE algorithm on CartPole env
 
+import os
 from random import random, shuffle
 import gym
 import numpy as np
@@ -7,26 +8,11 @@ import torch as T
 import torch.nn.functional as F
 from torch import nn
 from torch import optim
-from rlutils import IAi, show_game, test_game, memorize_game, sample_discrete_distribution, RandomAgent
+from torch import distributions
+from utils import models_dir, eps
 
 
-def test(env, ai, tests):
-    ai.exploration_rate = 0
-    avg_steps, avg_reward = 0, 0
-    for _ in range(tests):
-        # TODO : Max steps
-        steps, reward = test_game(env, ai)
-        avg_steps += steps
-        avg_reward += reward
-
-    avg_steps /= tests
-    avg_reward /= tests
-
-    print(f'Average steps in tests : {avg_steps:.1f}')
-    print(f'Average total reward in tests : {avg_reward:.2f}')
-
-
-class ReinforceAgentPolicy(nn.Module):
+class Policy(nn.Module):
     '''
         Simple fully connected network which outputs the policy (probabilities for each action)
     '''
@@ -40,107 +26,192 @@ class ReinforceAgentPolicy(nn.Module):
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        # TODO : Sigmoid
-        x = F.softmax(F.sigmoid(self.fc3(x)), dim=0)
+        x = F.softmax(self.fc3(x), dim=0)
 
         return x
 
 
-class ReinforceAgent(IAi):
-    def __init__(self, env, device, lr=.0002, n_hidden=24, discount_factor=.96, exploration_decay=.96):
-        super().__init__(env, exploration_decay=.96)
+def train_game(env, max_steps=-1):
+    '''
+        Train on one game
+    - return : steps, total_reward
+    '''
+    # Used to learn after
+    # List of [log_prob, reward]
+    env_steps = []
 
-        self.discount_factor = discount_factor
-        self.device = device
+    # Explore #
+    total_reward = 0
+    state = env.reset()
+    done = False
+    while not done:
+        state = T.from_numpy(state).to(device).to(T.float32)
+        
+        # Compute the probabilities for each action
+        # (This is a distribution, the sum is 1)
+        action_probs = policy(state)
+        dis = distributions.Categorical(action_probs)
+        # Sample an action
+        action = dis.sample()
+        # Compute log(pi(action|state))
+        log_prob = dis.log_prob(action)
+        action = action.detach().cpu().item()
 
-        self.policy = ReinforceAgentPolicy(env.observation_space.shape[0], n_hidden, env.action_space.n)
-        self.policy = self.policy.to(device)
-        self.opti = optim.Adam(self.policy.parameters(), lr=lr, betas=(.9, .999))
+        # Update game
+        state, reward, done, _ = env.step(action)
+        total_reward += reward
 
-    def learn(self, batch):
-        # !!! Reversed
-        parsed_batch = []
+        # Memorize
+        env_steps.append([log_prob, reward])
 
-        # This is the state value function
-        # <=> E[Sum(k from 0 to +inf, discount_factor ** k * reward_k) given the state s]
-        acc_reward = 0
+        if len(env_steps) == max_steps:
+            break
 
-        # Iterate backwards the batch to have the accumulated reward
-        for action, _, state, reward, _ in reversed(batch):
-            state = T.tensor(state, dtype=T.float32, device=self.device)
+    env.close()
 
-            # Update the accumulated reward
-            acc_reward *= self.discount_factor
-            acc_reward += reward
+    # Learn #
+    # Compute the state value function = Sum for i : gamma ** i * reward[i]
+    state_val = 0
+    # Now advantages are just state value functions
+    advantages = []
+    for _, reward in reversed(env_steps):
+        state_val = reward + discount_rate * state_val
+        advantages.append(state_val)
 
-            # Accumulate rewards
-            parsed_batch.append([action, state, acc_reward])
+    # advantages was reversed
+    advantages = advantages[::-1]
+    advantages = T.tensor(advantages, device=device)
+    # Compute advantages and normalize
+    advantages = (advantages - advantages.mean()) / (advantages.std() + eps)
 
-        # Components to make the loss and learn
-        # [[policy(state), advantage(action, state)]]
-        components = []
+    # Back prop
+    opti.zero_grad()
 
-        # Compute policies and advantages
-        for action, state, value_fun in reversed(parsed_batch):
-            # Guess action probabilities and the next action
-            action_probs = self.policy(state)
+    loss = T.tensor(0, dtype=T.float32, device=device)
+    for (log_prob, _), advantage in zip(env_steps, advantages):
+        loss += log_prob * advantage
 
-            # The advantage is how much this action is better
-            # than the value function
-            advantage = action_probs[action] - value_fun
+    loss = -loss
 
-            components.append([action_probs[action], advantage])
+    loss.backward()
+    opti.step()
 
-        # Learn
-        shuffle(components)
-        for policy, advantage in components:
-            self.opti.zero_grad()
+    return len(env_steps), total_reward
 
-            # - to make gradient ascent
-            loss = -T.log(policy) * advantage
 
-            # Update weights
-            loss.backward()
-            self.opti.step()
+def take_action(state):
+    '''
+        Returns the next action to take
+    '''
+    state = T.from_numpy(state).to(device).to(T.float32)
 
-    def guess(self, state):
-        '''
-            Exploitation
-        '''
-        with T.no_grad():
-            state = T.tensor(state, dtype=T.float32, device=self.device)
+    # Compute the probabilities for each action
+    # (This is a distribution, the sum is 1)
+    action_probs = policy(state)
+    dis = distributions.Categorical(action_probs)
 
-            # Guess probabilities for each action
-            # This is like a distribution, the sum
-            # of each prob is 1
-            action_probs = self.policy(state)
+    # Sample an action
+    return dis.sample().detach().cpu().item()
 
-            # Sample an action index from the distribution
-            action_i = sample_discrete_distribution(action_probs)
 
-        # Return the index of the action
-        return action_i
+def train_batch(env, epochs):
+    avg_steps = 0
+    avg_reward = 0
+    for e in range(1, epochs + 1):
+        if e % print_freq == 0:
+            print(f'Epoch {e:4d}\tAverage steps : {avg_steps / print_freq:.1f}\tAverage total reward : {avg_reward / print_freq:.1f}')
+            avg_steps = 0
+            avg_reward = 0
+        
+        steps, reward = train_game(env, max_steps=max_steps)
+        avg_steps += steps
+        avg_reward += reward
+
+    # Save
+    T.save(policy.state_dict(), path)
+    print('Model trained and saved')
+
+
+def test_game(env, render=False, max_steps=-1):
+    '''
+        Test on one game
+    - return : (steps, total_reward)
+    '''
+    steps = 0
+    total_reward = 0
+    state = env.reset()
+    done = False
+    while not done:
+        # Guess action
+        action = take_action(state)
+
+        # Update game
+        state, _, done, _ = env.step(action)
+
+        if render:
+            env.render()
+
+        steps += 1
+
+        if steps == max_steps:
+            break
+
+    env.close()
+
+    return steps, total_reward
+
+
+def test_batch(env, games=20):
+    '''
+        Tests the agent on multiple games,
+    displays the results
+    '''
+    avg_steps, avg_reward = 0, 0
+    for _ in range(games):
+        steps, reward = test_game(env, max_steps=max_steps)
+        avg_steps += steps
+        avg_reward += reward
+    
+    avg_steps /= games
+    avg_reward /= games
+
+    print('Test ended :')
+    print(f'- Average steps : {avg_steps:.1f}')
+    print(f'- Average total reward : {avg_steps:.1f}')
 
 
 # Params
 device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
 env_id = 'CartPole-v0'
+train = False
+test = False
 epochs = 40
+n_display_games = 4
 tests = 20
+lr = 1e-3
+discount_rate = .96
+path = models_dir + '/reinforce'
+max_steps = 200
+print_freq = 10
 
 # Agent and env
 env = gym.make(env_id)
-ai = ReinforceAgent(env, device, lr=1e-3, n_hidden=64)
+policy = Policy(env.observation_space.shape[0], 64, env.action_space.n).to(device)
+opti = optim.Adam(policy.parameters(), lr=lr, betas=(.9, .999))
+
+if os.path.exists(path):
+    policy.load_state_dict(T.load(path))
 
 # Train
-for e in range(epochs):
-    print(f'Epoch {e + 1}')
-    game = memorize_game(env, ai)
-    ai.learn(game)
+if train:
+    print('> Training')
+    train_batch(env, epochs)
 
 # Test
-print('--- Random ---')
-test(env, RandomAgent(env), tests)
-print('--- Ai ---')
-test(env, ai, tests)
+if test:
+    print('> Testing')
+    test_batch(env, games=tests)
 
+# Display
+for _ in range(n_display_games):
+    test_game(env, True)

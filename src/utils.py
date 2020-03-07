@@ -9,6 +9,9 @@ import torch as T
 dataset_dir = './data'
 models_dir = './models'
 
+# Minimum value > 0 of float32
+eps = np.finfo(np.float32).eps.item()
+
 
 # Image #
 def tens2img(img):
