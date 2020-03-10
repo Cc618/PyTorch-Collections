@@ -186,8 +186,8 @@ def test_batch(env, games=20):
 device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
 env_id = 'CartPole-v0'
 train = True
-test = False
-epochs = 50
+test = True
+epochs = 150
 n_display_games = 3
 tests = 20
 # Train at 1e-3 and then 5e-4 when there 150+ average steps
