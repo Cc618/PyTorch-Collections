@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import PIL.Image as im
 import torch as T
+from torch.nn import Module, Linear
+import torch.nn.functional as F
 
 
 # Constants #
@@ -113,3 +115,42 @@ def img_show(img, title=None, bw=False):
         plt.title(title)
     
     plt.show()
+
+
+# Net #
+class DenseBlock(Module):
+    '''
+        Dense block : [FC(x, h), FC(h, h), FC(h, y)]
+    '''
+    def __init__(self, n_x, n_h, n_y, activation=lambda x: x):
+        super().__init__()
+
+        self.activation = activation
+
+        self.fc1 = Linear(n_x, n_h)
+        self.fc2 = Linear(n_h, n_h)
+        self.fc3 = Linear(n_h, n_y)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x), True)
+        x = F.relu(self.fc2(x), True)
+        x = self.activation(self.fc3(x))
+    
+        return x
+
+
+class DenseLayer(Module):
+    '''
+        Dense layer : [FC(x, h), ReLU(), FC(h, y)]
+    '''
+    def __init__(self, n_x, n_h, n_y):
+        super().__init__()
+
+        self.fc1 = Linear(n_x, n_h)
+        self.fc2 = Linear(n_h, n_y)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x), True)
+        x = self.fc2(x)
+    
+        return x

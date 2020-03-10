@@ -9,26 +9,35 @@ import torch.nn.functional as F
 from torch import nn
 from torch import optim
 from torch import distributions
-from utils import models_dir, eps
+from utils import models_dir, eps, DenseLayer
 
 
-class Policy(nn.Module):
+class Net(nn.Module):
     '''
         Simple fully connected network which outputs the policy (probabilities for each action)
     '''
-    def __init__(self, n_x, n_h, n_y):
+    def __init__(self, n_state, n_action, n_hidden_actor, n_hidden_critic):
         super().__init__()
 
-        self.fc1 = nn.Linear(n_x, n_h)
-        self.fc2 = nn.Linear(n_h, n_h)
-        self.fc3 = nn.Linear(n_h, n_y)
+        self.actor = DenseLayer(n_state, n_hidden_actor, n_action)
+        self.critic = DenseLayer(n_state, n_hidden_critic, 1)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.softmax(self.fc3(x), dim=0)
+        # Returns the action distribution and the value
+        return F.softmax(self.actor(x), 0), self.critic(x)
 
-        return x
+
+def compute_value_fun(rewards):
+    '''
+        Returns the state value functions : E(Sum(i, gamma ** i * reward))
+    '''
+    values = []
+    value = 0
+    for reward in reversed(rewards):
+        value = discount_rate * value + reward
+        values.append(value)
+    
+    return values[::-1]
 
 
 def train_game(env, max_steps=-1):
@@ -37,8 +46,9 @@ def train_game(env, max_steps=-1):
     - return : steps, total_reward
     '''
     # Used to learn after
-    # List of [log_prob, reward]
-    env_steps = []
+    log_probs = []
+    rewards = []
+    values = []
 
     # Explore #
     total_reward = 0
@@ -47,14 +57,14 @@ def train_game(env, max_steps=-1):
     while not done:
         state = T.from_numpy(state).to(device).to(T.float32)
         
-        # Compute the probabilities for each action
+        # Compute the probabilities for each action and the value
         # (This is a distribution, the sum is 1)
-        action_probs = policy(state)
+        action_probs, value = net(state)
+
+        # Sample an action and compute log(pi(action|state))
         dis = distributions.Categorical(action_probs)
-        # Sample an action
         action = dis.sample()
-        # Compute log(pi(action|state))
-        log_prob = dis.log_prob(action)
+        log_prob = dis.log_prob(action).view(1)
         action = action.detach().cpu().item()
 
         # Update game
@@ -62,41 +72,33 @@ def train_game(env, max_steps=-1):
         total_reward += reward
 
         # Memorize
-        env_steps.append([log_prob, reward])
+        log_probs.append(log_prob)
+        rewards.append(reward)
+        values.append(value)
 
-        if len(env_steps) == max_steps:
+        if len(log_probs) == max_steps:
             break
 
     env.close()
 
     # Learn #
-    # Compute the state value function = Sum for i : gamma ** i * reward[i]
-    state_val = 0
-    # Now advantages are just state value functions
-    advantages = []
-    for _, reward in reversed(env_steps):
-        state_val = reward + discount_rate * state_val
-        advantages.append(state_val)
+    # Cast outputs
+    values = T.cat(values)
+    log_probs = T.cat(log_probs)
+    value_fun = T.tensor(compute_value_fun(rewards), dtype=T.float32, device=device)
+    advantage = value_fun.detach() - values
 
-    # advantages was reversed
-    advantages = advantages[::-1]
-    advantages = T.tensor(advantages, device=device)
-    # Compute advantages and normalize
-    advantages = (advantages - advantages.mean()) / (advantages.std() + eps)
+    # Loss
+    actor_loss = -(log_probs * advantage.detach()).mean()
+    critic_loss = .5 * advantage.pow(2).mean()
+    loss = critic_loss + actor_loss
 
     # Back prop
     opti.zero_grad()
-
-    loss = T.tensor(0, dtype=T.float32, device=device)
-    for (log_prob, _), advantage in zip(env_steps, advantages):
-        loss += log_prob * advantage
-
-    loss = -loss
-
     loss.backward()
     opti.step()
 
-    return len(env_steps), total_reward
+    return len(log_probs), total_reward
 
 
 def take_action(state):
@@ -107,7 +109,7 @@ def take_action(state):
 
     # Compute the probabilities for each action
     # (This is a distribution, the sum is 1)
-    action_probs = policy(state)
+    action_probs, _ = net(state)
     dis = distributions.Categorical(action_probs)
 
     # Sample an action
@@ -128,7 +130,7 @@ def train_batch(env, epochs):
         avg_reward += reward
 
     # Save
-    T.save(policy.state_dict(), path)
+    T.save(net.state_dict(), path)
     print('Model trained and saved')
 
 
@@ -184,23 +186,25 @@ def test_batch(env, games=20):
 device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
 env_id = 'CartPole-v0'
 train = True
-test = True
-epochs = 200
-n_display_games = 10
+test = False
+epochs = 50
+n_display_games = 3
 tests = 20
-lr = 1e-3
-discount_rate = .96
-path = models_dir + '/reinforce'
-max_steps = 200
+# Train at 1e-3 and then 5e-4 when there 150+ average steps
+lr = 5e-4
+discount_rate = .98
+path = models_dir + '/a2c'
+max_steps = 300
 print_freq = 10
 
 # Agent and env
 env = gym.make(env_id)
-policy = Policy(env.observation_space.shape[0], 64, env.action_space.n).to(device)
-opti = optim.Adam(policy.parameters(), lr=lr, betas=(.9, .999))
+env._max_episode_steps = max_steps
+net = Net(env.observation_space.shape[0], env.action_space.n, 256, 1024).to(device)
+opti = optim.Adam(net.parameters(), lr=lr, betas=(.9, .999))
 
 if os.path.exists(path):
-    policy.load_state_dict(T.load(path))
+    net.load_state_dict(T.load(path))
 
 # Train
 if train:
@@ -214,5 +218,6 @@ if test:
 
 # Display
 # To create a video : env = gym.wrappers.Monitor(env, './video')
+env._max_episode_steps = 1500
 for _ in range(n_display_games):
     test_game(env, True)
