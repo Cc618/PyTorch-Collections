@@ -44,3 +44,4 @@ A collection of AIs made with PyTorch
 - [CycleGAN](https://arxiv.org/pdf/1703.10593.pdf)
 - [DDQN](https://arxiv.org/pdf/1509.06461.pdf)
 - [PER](https://arxiv.org/pdf/1511.05952.pdf)
+- [PPO](https://arxiv.org/pdf/1707.06347.pdf)
