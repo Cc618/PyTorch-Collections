@@ -55,7 +55,7 @@ class Net(nn.Module):
         # Guess
         return self.guess_action(state)
 
-    def learn(self, step):
+    def learn(self, step, target):
         '''
             Learns from an env step
         - step : (action, prev_state, state, reward, done)
@@ -69,13 +69,22 @@ class Net(nn.Module):
         action_value = T.tensor(reward, dtype=T.float32, device=device)
 
         if not done:
-            action_value += self.discount_rate * T.max(self(state))
+            action_value += self.discount_rate * target(state)[T.argmax(self(state))]
 
         loss = self.criterion(action_value, values[action])
 
         self.opti.zero_grad()
         loss.backward()
         self.opti.step()
+    
+    def sync(self, net, avg_rate):
+        '''
+            Merges the parameters of net
+        '''
+        q_params = net.state_dict()
+        params = self.state_dict()
+        for (_, q_param), (name, param) in zip(q_params.items(), params.items()):
+            params[name].copy_(avg_rate * q_param + (1 - avg_rate) * param)
 
 
 def train_game(env, max_steps=-1):
@@ -110,7 +119,10 @@ def train_game(env, max_steps=-1):
     shuffle(env_steps)
 
     for step in env_steps:
-        net.learn(step)
+        net.learn(step, target)
+
+    # Sync target and q net
+    target.sync(net, avg_rate)
 
     # Update exploration rate
     net.exploration_rate *= net.exploration_decay
@@ -130,11 +142,6 @@ def train_batch(env, epochs):
         steps, reward = train_game(env, max_steps=max_steps)
         avg_steps += steps
         avg_reward += reward
-
-    # Save
-    if save:
-        T.save(net.state_dict(), path)
-        print('Model trained and saved')
 
 
 def test_game(env, render=False, max_steps=-1):
@@ -195,10 +202,11 @@ test = True
 n_display = 3
 save = False
 epochs = 200
+n_hidden = 128
 print_freq = 10
 max_steps = 200
 device = T.device('cpu') # CPU is better for minibatches T.device('cuda:0' if T.cuda.is_available() else 'cpu')
-path = models_dir + '/ddqn'
+avg_rate = 2e-1
 T.manual_seed(314159265)
 
 # Env
@@ -207,13 +215,11 @@ env = gym.make(env_name)
 env.seed(314159265)
 
 # Net
-net = Net(env.observation_space.shape[0], env.action_space.n, 128, lr=1e-3, discount_rate=.98, exploration_decay=.98)
+net = Net(env.observation_space.shape[0], env.action_space.n, n_hidden, lr=1e-3, discount_rate=.92, exploration_decay=.98)
+net.exploration_rate = .8
+target = Net(env.observation_space.shape[0], env.action_space.n, n_hidden)
 net.to(device)
-
-# !!! Be careful, the exploration rate is reset when the model is loaded
-if save and os.path.exists(path):
-    net.load_state_dict(T.load(path))
-    print('Model loaded')
+target.to(device)
 
 # Training
 if train:
