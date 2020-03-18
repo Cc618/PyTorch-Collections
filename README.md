@@ -38,3 +38,9 @@ A collection of AIs made with PyTorch
 ### A2C
 
 ![A2C](res/a2c.gif "A2C")
+
+## Papers
+- [GAN](https://arxiv.org/pdf/1406.2661.pdf)
+- [CycleGAN](https://arxiv.org/pdf/1703.10593.pdf)
+- [DDQN](https://arxiv.org/pdf/1509.06461.pdf)
+- [PER](https://arxiv.org/pdf/1511.05952.pdf)
