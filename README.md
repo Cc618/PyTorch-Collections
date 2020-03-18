@@ -20,6 +20,7 @@ A collection of AIs made with PyTorch
 - [A2C](src/a2c.py) : Advantage Actor Critic algorithm (inspired by REINFORCE algorithm) for gym's CartPole environment
 - [DQN](src/dqn.py) : Deep Q Leaning implementation (CartPole env again)
 - [DDQN](src/ddqn.py) : Double Deep Q Leaning implementation
+- [PER](src/per.py) : Prioritized Experience Replay, this method takes O(n) time to get / O(1) time to add (unlike in the original paper) 
 
 ## Images
 ### Denoiser
