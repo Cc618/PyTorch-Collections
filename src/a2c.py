@@ -129,10 +129,6 @@ def train_batch(env, epochs):
         avg_steps += steps
         avg_reward += reward
 
-    # Save
-    T.save(net.state_dict(), path)
-    print('Model trained and saved')
-
 
 def test_game(env, render=False, max_steps=-1):
     '''
@@ -187,13 +183,12 @@ device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
 env_id = 'CartPole-v0'
 train = True
 test = True
-epochs = 150
+epochs = 400
 n_display_games = 3
 tests = 20
 # Train at 1e-3 and then 5e-4 when there 150+ average steps
 lr = 5e-4
 discount_rate = .98
-path = models_dir + '/a2c'
 max_steps = 300
 print_freq = 10
 
@@ -202,9 +197,6 @@ env = gym.make(env_id)
 env._max_episode_steps = max_steps
 net = Net(env.observation_space.shape[0], env.action_space.n, 256, 1024).to(device)
 opti = optim.Adam(net.parameters(), lr=lr, betas=(.9, .999))
-
-if os.path.exists(path):
-    net.load_state_dict(T.load(path))
 
 # Train
 if train:
