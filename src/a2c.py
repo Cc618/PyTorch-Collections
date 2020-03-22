@@ -52,6 +52,7 @@ def train_game(env, max_steps=-1):
 
     # Explore #
     total_reward = 0
+    entropy = 0
     state = env.reset()
     done = False
     while not done:
@@ -64,6 +65,7 @@ def train_game(env, max_steps=-1):
         # Sample an action and compute log(pi(action|state))
         dis = distributions.Categorical(action_probs)
         action = dis.sample()
+        entropy += dis.entropy()
         log_prob = dis.log_prob(action).view(1)
         action = action.detach().cpu().item()
 
@@ -86,12 +88,12 @@ def train_game(env, max_steps=-1):
     values = T.cat(values)
     log_probs = T.cat(log_probs)
     value_fun = T.tensor(compute_value_fun(rewards), dtype=T.float32, device=device)
-    advantage = value_fun.detach() - values
+    advantage = value_fun - values
 
     # Loss
     actor_loss = -(log_probs * advantage.detach()).mean()
     critic_loss = .5 * advantage.pow(2).mean()
-    loss = critic_loss + actor_loss
+    loss = critic_loss + actor_loss + entropy * entropy_penality
 
     # Back prop
     opti.zero_grad()
@@ -180,22 +182,22 @@ def test_batch(env, games=20):
 
 # Params
 device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
-env_id = 'CartPole-v0'
+env_id = 'LunarLander-v2'
 train = True
 test = True
-epochs = 400
-n_display_games = 3
-tests = 20
-# Train at 1e-3 and then 5e-4 when there 150+ average steps
-lr = 5e-4
+epochs = 800
+n_display_games = 10
+tests = 10
+lr = 1e-3 
 discount_rate = .98
+entropy_penality = 1e-2
 max_steps = 300
 print_freq = 10
 
 # Agent and env
 env = gym.make(env_id)
 env._max_episode_steps = max_steps
-net = Net(env.observation_space.shape[0], env.action_space.n, 256, 1024).to(device)
+net = Net(env.observation_space.shape[0], env.action_space.n, 256, 256).to(device)
 opti = optim.Adam(net.parameters(), lr=lr, betas=(.9, .999))
 
 # Train
