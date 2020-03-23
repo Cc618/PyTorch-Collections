@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import PIL.Image as im
@@ -13,6 +14,19 @@ models_dir = './models'
 
 # Minimum value > 0 of float32
 eps = np.finfo(np.float32).eps.item()
+
+
+# IO #
+def try_load_agent(agent, path):
+    '''
+        Loads the agent if the file exists
+    '''
+    if os.path.exists(path):
+        agent.load_state_dict(T.load(path))
+
+
+def save_agent(agent, path):
+    T.save(agent.state_dict(), path)
 
 
 # Image #

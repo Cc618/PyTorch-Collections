@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch import optim
 from torch import distributions
-from utils import models_dir, eps, DenseLayer
+from utils import models_dir, eps, DenseLayer, try_load_agent, save_agent
 
 
 class Net(nn.Module):
@@ -40,7 +40,7 @@ def compute_value_fun(rewards):
     return values[::-1]
 
 
-def train_game(env, max_steps=-1):
+def train_game(env):
     '''
         Train on one game
     - return : steps, total_reward
@@ -77,9 +77,6 @@ def train_game(env, max_steps=-1):
         log_probs.append(log_prob)
         rewards.append(reward)
         values.append(value)
-
-        if len(log_probs) == max_steps:
-            break
 
     env.close()
 
@@ -127,12 +124,14 @@ def train_batch(env, epochs):
             avg_steps = 0
             avg_reward = 0
         
-        steps, reward = train_game(env, max_steps=max_steps)
+        steps, reward = train_game(env)
         avg_steps += steps
         avg_reward += reward
 
+    save_agent(net, path)
 
-def test_game(env, render=False, max_steps=-1):
+
+def test_game(env, render=False):
     '''
         Test on one game
     - return : (steps, total_reward)
@@ -146,15 +145,14 @@ def test_game(env, render=False, max_steps=-1):
         action = take_action(state)
 
         # Update game
-        state, _, done, _ = env.step(action)
+        state, reward, done, _ = env.step(action)
 
         if render:
             env.render()
 
+        total_reward += reward
+        
         steps += 1
-
-        if steps == max_steps:
-            break
 
     env.close()
 
@@ -168,7 +166,7 @@ def test_batch(env, games=20):
     '''
     avg_steps, avg_reward = 0, 0
     for _ in range(games):
-        steps, reward = test_game(env, max_steps=max_steps)
+        steps, reward = test_game(env)
         avg_steps += steps
         avg_reward += reward
     
@@ -177,7 +175,7 @@ def test_batch(env, games=20):
 
     print('Test ended :')
     print(f'- Average steps : {avg_steps:.1f}')
-    print(f'- Average total reward : {avg_steps:.1f}')
+    print(f'- Average total reward : {avg_reward:.1f}')
 
 
 # Params
@@ -185,20 +183,22 @@ device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
 env_id = 'LunarLander-v2'
 train = True
 test = True
-epochs = 800
+epochs = 200
 n_display_games = 10
 tests = 10
+n_hidden_actor, n_hidden_critic = 256, 128
 lr = 1e-3 
 discount_rate = .98
 entropy_penality = 1e-2
-max_steps = 300
 print_freq = 10
+path = models_dir + '/a2c'
 
 # Agent and env
 env = gym.make(env_id)
-env._max_episode_steps = max_steps
-net = Net(env.observation_space.shape[0], env.action_space.n, 256, 256).to(device)
+net = Net(env.observation_space.shape[0], env.action_space.n, n_hidden_actor, n_hidden_critic).to(device)
 opti = optim.Adam(net.parameters(), lr=lr, betas=(.9, .999))
+
+try_load_agent(net, path)
 
 # Train
 if train:
