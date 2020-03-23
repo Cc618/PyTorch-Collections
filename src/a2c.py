@@ -100,7 +100,7 @@ def train_game(env):
     return len(log_probs), total_reward
 
 
-def take_action(state):
+def take_action(state, use_best_actions=True):
     '''
         Returns the next action to take
     '''
@@ -109,10 +109,13 @@ def take_action(state):
     # Compute the probabilities for each action
     # (This is a distribution, the sum is 1)
     action_probs, _ = net(state)
-    dis = distributions.Categorical(action_probs)
 
-    # Sample an action
-    return dis.sample().detach().cpu().item()
+    # Choose an action
+    if use_best_actions:
+        return T.argmax(action_probs).detach().cpu().item()
+    else:
+        dis = distributions.Categorical(action_probs)
+        return dis.sample().detach().cpu().item()
 
 
 def train_batch(env, epochs):
@@ -131,7 +134,7 @@ def train_batch(env, epochs):
     save_agent(net, path)
 
 
-def test_game(env, render=False):
+def test_game(env, use_best_actions=True, render=False):
     '''
         Test on one game
     - return : (steps, total_reward)
@@ -142,7 +145,7 @@ def test_game(env, render=False):
     done = False
     while not done:
         # Guess action
-        action = take_action(state)
+        action = take_action(state, use_best_actions)
 
         # Update game
         state, reward, done, _ = env.step(action)
@@ -159,14 +162,14 @@ def test_game(env, render=False):
     return steps, total_reward
 
 
-def test_batch(env, games=20):
+def test_batch(env, use_best_actions=True, games=20):
     '''
         Tests the agent on multiple games,
     displays the results
     '''
     avg_steps, avg_reward = 0, 0
     for _ in range(games):
-        steps, reward = test_game(env)
+        steps, reward = test_game(env, use_best_actions=use_best_actions)
         avg_steps += steps
         avg_reward += reward
     
@@ -187,7 +190,7 @@ epochs = 200
 n_display_games = 10
 tests = 10
 n_hidden_actor, n_hidden_critic = 256, 128
-lr = 1e-3 
+lr = 1e-4 
 discount_rate = .98
 entropy_penality = 1e-2
 print_freq = 10
@@ -208,10 +211,10 @@ if train:
 # Test
 if test:
     print('> Testing')
-    test_batch(env, games=tests)
+    test_batch(env, use_best_actions=True, games=tests)
 
 # Display
 # To create a video : env = gym.wrappers.Monitor(env, './video')
 env._max_episode_steps = 1500
 for _ in range(n_display_games):
-    test_game(env, True)
+    test_game(env, render=True)
