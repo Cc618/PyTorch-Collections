@@ -1,7 +1,6 @@
 # REINFORCE algorithm on CartPole env
 
 import os
-from random import random, shuffle
 import gym
 import numpy as np
 import torch as T
@@ -186,18 +185,22 @@ device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
 env_id = 'LunarLander-v2'
 train = True
 test = True
-epochs = 200
+use_best_actions = False
+epochs = 400
 n_display_games = 10
 tests = 10
-n_hidden_actor, n_hidden_critic = 256, 128
-lr = 1e-4 
+n_hidden_actor, n_hidden_critic = 256, 256
+lr = 5e-4
 discount_rate = .98
 entropy_penality = 1e-2
 print_freq = 10
 path = models_dir + '/a2c'
+# seed = 55618
 
 # Agent and env
 env = gym.make(env_id)
+# T.manual_seed(seed)
+# env.seed(seed)
 net = Net(env.observation_space.shape[0], env.action_space.n, n_hidden_actor, n_hidden_critic).to(device)
 opti = optim.Adam(net.parameters(), lr=lr, betas=(.9, .999))
 
@@ -211,10 +214,10 @@ if train:
 # Test
 if test:
     print('> Testing')
-    test_batch(env, use_best_actions=True, games=tests)
+    test_batch(env, use_best_actions=use_best_actions, games=tests)
 
 # Display
 # To create a video : env = gym.wrappers.Monitor(env, './video')
-env._max_episode_steps = 1500
+env._max_episode_steps = 1000
 for _ in range(n_display_games):
-    test_game(env, render=True)
+    test_game(env, use_best_actions=use_best_actions, render=True)
