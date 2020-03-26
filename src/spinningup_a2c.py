@@ -9,22 +9,21 @@ from utils import save_agent, try_load_agent, models_dir
 
 
 class Buffer:
-    def __init__(self, size, batch_size, learn):
-        self.size = size
+    '''
+        Stores experiences to learn from minibatches
+    '''
+    def __init__(self, batch_size, learn):
         self.batch_size = batch_size
         self.learn = learn
 
         self.data = []
         
-    def add(self, state, action, reward, log_prob):
-        self.data.append((state, action, reward, log_prob))
-
-        # if len(self.data) >= self.size:
-        #     self.learn(self.data)
-        #     self.data.clear()
+    def add(self, state, reward, log_prob):
+        self.data.append((state, reward, log_prob))
     
     def finish_game(self):
-        for i in range(0, self.size, self.batch_size):
+        # Learn from minibatches
+        for i in range(0, len(self.data), self.batch_size):
             batch = self.data[i : min(len(self.data), i + self.batch_size)]
             self.learn(batch)
 
@@ -46,40 +45,36 @@ def discounted_rewards(rewards):
 
 def learn(batch):
     states = T.cat([T.Tensor(b[0]).unsqueeze(0) for b in batch])
-    # actions = T.Tensor([b[1] for b in batch])
-    rewards = [b[2] for b in batch]
-    log_probs = T.cat([b[3] for b in batch])
+    rewards = [b[1] for b in batch]
+    log_probs = T.cat([b[2] for b in batch])
 
     rewards = discounted_rewards(rewards)
     advantages = rewards - critic(states)
 
-
-    # loss_actor = -(log_probs * advantages.detach()).mean()
+    # Works also : loss_actor = -(log_probs * advantages.detach()).mean()
     loss_actor = (-1 / len(buf.data)) * (log_probs * advantages.detach()).sum()
     opti_actor.zero_grad()
     loss_actor.backward()
     opti_actor.step()
 
-    # loss_critic = .5 * advantages.pow(2).mean()
+    # Works also : loss_critic = .5 * advantages.pow(2).mean()
     loss_critic = (1 / (len(batch) * len(buf.data))) * advantages.pow(2).sum()
     opti_critic.zero_grad()
     loss_critic.backward()
     opti_critic.step()
 
-    # print(loss_actor.item() + loss_critic.item())
-
-
-train = False
+train = True
 n_hidden = 128
 batch_size = 20
 lr = 1e-3
 discount_factor = .98
 print_freq = 20
+n_display_games = 5
 save_freq = 100
 seed = 161831415
 path = models_dir + '/vpg'
-path_actor = path + "_actor"
-path_critic = path + "_critic"
+path_actor = path + '_actor'
+path_critic = path + '_critic'
 
 env = gym.make('LunarLander-v2')
 env.seed(seed)
@@ -110,7 +105,7 @@ opti_critic = optim.Adam(critic.parameters(), lr=lr)
 try_load_agent(actor, path_actor)
 try_load_agent(critic, path_critic)
 
-buf = Buffer(200, batch_size, learn)
+buf = Buffer(batch_size, learn)
 
 e = 0
 avg_reward = 0
@@ -137,14 +132,12 @@ if train:
             new_state, reward, done, _ = env.step(action)
 
             # Memorize
-            buf.add(state, action, reward, log_prob)
+            buf.add(state, reward, log_prob)
 
             total_reward += reward
             state = new_state
 
-        # TODO
-        buf.learn(buf.data)
-        buf.data.clear()
+        buf.finish_game()
 
         env.close()
 
@@ -160,29 +153,27 @@ if train:
             print('Model saved')
 else:
     # To create a video :
-    env = gym.wrappers.Monitor(env, './video')
-    
-    # Render
-    total_reward = 0
-    state = env.reset()
-    done = False
-    while not done:
-        state = T.Tensor(state)
+    # env = gym.wrappers.Monitor(env, './video')
+    for _ in range(n_display_games):
+        # Render
+        total_reward = 0
+        state = env.reset()
+        done = False
+        while not done:
+            state = T.Tensor(state)
 
-        # Choose action
-        action_probs = actor(state)
-        dis = D.Categorical(action_probs)
-        action = dis.sample()
-        action = action.detach().item()
+            # Choose action
+            action_probs = actor(state)
+            action = D.Categorical(action_probs).sample().detach().item()
 
-        # Update game
-        new_state, reward, done, _ = env.step(action)
+            # Update game
+            new_state, reward, done, _ = env.step(action)
 
-        env.render()
+            env.render()
 
-        total_reward += reward
-        state = new_state
+            total_reward += reward
+            state = new_state
 
-    env.close()
+        env.close()
 
-    print(total_reward)
+        print(total_reward)
