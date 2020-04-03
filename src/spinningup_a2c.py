@@ -63,6 +63,7 @@ def learn(batch):
     loss_critic.backward()
     opti_critic.step()
 
+
 train = True
 n_hidden = 128
 batch_size = 20
