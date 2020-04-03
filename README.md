@@ -20,7 +20,7 @@ A collection of AIs made with PyTorch
 - [A2C](src/a2c.py) : Advantage Actor Critic algorithm (inspired by REINFORCE algorithm) for gym's CartPole environment
 - [A2C](src/spinningup_a2c.py) : A2C on LunarLander with Experience Buffer.
 - [DQN](src/dqn.py) : Deep Q Leaning implementation (CartPole env again)
-- [DDQN](src/ddqn.py) : Double Deep Q Leaning implementation
+- [DDQN](src/ddqn.py) : Double Deep Q Leaning implementation on LunarLander-v2
 - [PER](src/per.py) : Prioritized Experience Replay, this method takes O(n) time to get / O(1) time to add (unlike in the original paper) 
 
 ## Images
@@ -40,6 +40,10 @@ A collection of AIs made with PyTorch
 
 ![A2C](res/a2c.gif "A2C on CartPole")
 ![A2C](res/lunar_a2c.gif "A2C on LunarLander")
+
+### DDQN
+
+![DDQN](res/ddqn.gif "DDQN on LunarLander")
 
 ## Papers
 - [GAN](https://arxiv.org/pdf/1406.2661.pdf)
