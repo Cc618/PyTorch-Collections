@@ -53,20 +53,22 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
 
         self.fc1 = nn.Linear(n_state, n_hidden)
-        self.fc2 = nn.Linear(n_hidden, n_action)
+        self.fc2 = nn.Linear(n_hidden, n_hidden)
+        self.fc3 = nn.Linear(n_hidden, n_action)
 
     def forward(self, state):
         y = F.relu(self.fc1(state))
-        y = self.fc2(y)
+        y = F.relu(self.fc2(y))
+        y = self.fc3(y)
 
         return y
 
 
 def learn(states, next_states, actions, rewards, dones):
-    global dqn, dqn_target, n_action, opti, discount, eps, eps_decay, min_eps, avg_loss, sync_freq, sync_step
+    global dqn, dqn_target, n_action, opti, discount, exploration, exploration_decay, min_exploration, avg_loss, sync_freq, sync_step
 
     # Update exploration
-    eps = max(eps * eps_decay, min_eps)
+    exploration = max(exploration * exploration_decay, min_exploration)
 
     # Sync if necessary
     sync_step += 1
@@ -95,9 +97,9 @@ def learn(states, next_states, actions, rewards, dones):
     opti.step()
 
 
-def act(state, eps):
-    if random.random() < eps:
-        return randint(0, 1)
+def act(state, exploration):
+    if random.random() < exploration:
+        return randint(0, n_action - 1)
 
     rewards = dqn(state)
     return T.argmax(rewards).detach().item()
@@ -121,18 +123,20 @@ def save():
     global path, dqn
 
     save_agent(dqn, path)
+    print('Model saved')
 
 
 lr = 1e-3
-eps_decay = .98
+exploration_decay = .994
+min_exploration = .1
 n_hidden = 256
 discount = .99
-mem_size = 100
-epochs = 2000
-print_freq = 100
-sync_freq = 16
-sync_ratio = .01
-save_freq = 500
+mem_size = 400
+epochs = 1000
+print_freq = 50
+sync_freq = 8
+sync_ratio = .02
+save_freq = 200
 
 path = models_dir + '/ddqn'
 
@@ -145,8 +149,7 @@ env.seed(seed)
 T.manual_seed(seed)
 random.seed(seed)
 
-eps = 1
-min_eps = .1
+exploration = 1
 
 mem = ReplayBuffer(n_state, mem_size, learn)
 dqn = DQN(n_state, n_action, n_hidden)
@@ -166,7 +169,7 @@ for e in range(1, epochs + 1):
     state = T.from_numpy(env.reset()).to(T.float32)
     done = False
     while not done:
-        action = act(state, eps)
+        action = act(state, exploration)
 
         new_state, reward, done, _ = env.step(action)
         new_state = T.from_numpy(new_state).to(T.float32)
@@ -178,15 +181,13 @@ for e in range(1, epochs + 1):
         avg_reward += reward
 
     if e % print_freq == 0:
-        print(f'Epoch {e:5d} Reward {avg_reward / print_freq:<5.0f} Loss {avg_loss / steps:<6.4f}')
+        print(f'Epoch {e:5d} Reward {avg_reward / print_freq:<5.0f} Loss {avg_loss / steps:<6.4f} Exploration {exploration:<4.2f}')
         avg_reward = avg_loss = steps = 0
 
     if e % save_freq == 0:
         save()
-        print('Model saved')
     
 save()
-print('Model saved')
 
 # Play
 for i in count():
