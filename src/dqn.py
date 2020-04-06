@@ -1,228 +1,185 @@
-# Deep Q Network
+# Basic DQN trained on CartPole-v0
+# Scores > 100 after 1000 epochs in average
+# Uses a simple replay buffer
 
-import os
-from random import random, randint, shuffle
-import gym
+import random
+from itertools import count
+from random import randint, shuffle
 import torch as T
-from torch import nn
-from torch import optim
+from torch import nn, optim
 import torch.nn.functional as F
-from utils import models_dir
+import gym
+from utils import models_dir, save_agent, try_load_agent
 
 
-class Net(nn.Module):
-    def __init__(self, n_state, n_action, n_hidden, lr=1e-3, discount_rate=.96, exploration_decay=.98):
+class ReplayBuffer:
+    '''
+        A basic memory, when 'size' steps are memorized,
+    the functor on_learn is called with a batch as parameter
+    '''
+    def __init__(self, n_state, size, on_learn):
         super().__init__()
 
-        self.n_action = n_action
-        self.discount_rate = discount_rate
-        self.exploration_decay = exploration_decay
-        self.exploration_rate = 1
+        self.size = size
+        self.on_learn = on_learn
+        self.sample_i = 0
+
+        self.states = T.empty([size, n_state])
+        self.next_states = T.empty([size, n_state])
+        self.actions = T.empty([size], dtype=T.long)
+        self.rewards = T.empty([size])
+        self.dones = T.empty([size])
+
+    def add(self, state, next_state, action, reward, done):
+        self.states[self.sample_i] = state
+        self.next_states[self.sample_i] = next_state
+        self.actions[self.sample_i] = action
+        self.rewards[self.sample_i] = reward
+        self.dones[self.sample_i] = done
+
+        self.sample_i += 1
+        if self.sample_i >= self.size:
+            # Shuffle data
+            idx = [i for i in range(self.size)]
+            shuffle(idx)
+
+            self.on_learn(self.states[idx], self.next_states[idx], self.actions[idx], self.rewards[idx], self.dones[idx])
+
+            # 'Clear' data
+            self.sample_i = 0
+
+
+class DQN(nn.Module):
+    def __init__(self, n_state, n_action, n_hidden):
+        super(DQN, self).__init__()
 
         self.fc1 = nn.Linear(n_state, n_hidden)
         self.fc2 = nn.Linear(n_hidden, n_hidden)
         self.fc3 = nn.Linear(n_hidden, n_action)
-        
-        self.opti = optim.Adam(self.parameters(), lr=lr)
-        self.criterion = nn.MSELoss()
 
     def forward(self, state):
-        '''
-            Predicts the state action value for each action in this state
-        '''
-        state = F.relu(self.fc1(state))
-        state = F.relu(self.fc2(state))
-        state = self.fc3(state)
+        y = F.relu(self.fc1(state))
+        y = F.relu(self.fc2(y))
+        y = self.fc3(y)
 
-        return state
-
-    def guess_action(self, state):
-        '''
-            Guesses the next action to take
-        '''
-        values = self(state)
-
-        return T.argmax(values).detach().cpu().item()
-
-    def take_action(self, state):
-        '''
-            Either takes a random action or guesses the next action
-        '''
-        # Explore
-        if random() < self.exploration_rate:
-            return randint(1, self.n_action) - 1
-
-        # Guess
-        return self.guess_action(state)
-
-    def learn(self, step):
-        '''
-            Learns from an env step
-        - step : (action, prev_state, state, reward, done)
-        '''
-        action, prev_state, state, reward, done = step
-
-        # Values for this state
-        values = self(prev_state)
-
-        # self(prev_state)[action] should be == reward + gamma * max(self(state)) * (1 - done)
-        action_value = T.tensor(reward, dtype=T.float32, device=device)
-
-        if not done:
-            action_value += self.discount_rate * T.max(self(state))
-
-        loss = self.criterion(action_value, values[action])
-
-        self.opti.zero_grad()
-        loss.backward()
-        self.opti.step()
+        return y
 
 
-def train_game(env, max_steps=-1):
-    '''
-        Train on one game
-    - return : steps, total_reward
-    '''
-    # Memorize #
-    # Memory
-    env_steps = []
-    total_reward = 0
-    state = T.from_numpy(env.reset()).to(device).to(T.float32)
+def learn(states, next_states, actions, rewards, dones):
+    global dqn, n_action, opti, discount, exploration, exploration_decay, min_exploration, avg_loss
+
+    # Update exploration
+    exploration = max(exploration * exploration_decay, min_exploration)
+
+    # Q values for these states
+    q = (dqn(states) * F.one_hot(actions, n_action)).sum(1)
+
+    # Next Q values
+    best_q = T.max(dqn(next_states), 1)[0]
+
+    # Target Q values
+    q_target = rewards + (1 - dones) * discount * best_q
+
+    loss = F.mse_loss(q, q_target.detach()).mean()
+    # loss = F.smooth_l1_loss(q, q_target.detach()).mean()
+
+    avg_loss += loss.item()
+
+    opti.zero_grad()
+    loss.backward()
+    opti.step()
+
+
+def act(state, exploration):
+    if random.random() < exploration:
+        return randint(0, n_action - 1)
+
+    rewards = dqn(state)
+    return T.argmax(rewards).detach().item()
+
+
+def save():
+    global path, dqn
+
+    save_agent(dqn, path)
+    print('Model saved')
+
+
+lr = 14e-4
+exploration_decay = .99
+min_exploration = .1
+n_hidden = 128
+discount = .99
+mem_size = 40
+epochs = 2000
+print_freq = 100
+save_freq = 1000
+
+path = models_dir + '/dqn'
+
+env = gym.make('CartPole-v1')
+n_state = env.observation_space.shape[0]
+n_action = env.action_space.n
+
+seed = 3141618
+env.seed(seed)
+T.manual_seed(seed)
+random.seed(seed)
+
+exploration = 1
+
+mem = ReplayBuffer(n_state, mem_size, learn)
+dqn = DQN(n_state, n_action, n_hidden)
+opti = optim.Adam(dqn.parameters(), lr=lr)
+
+# Load agent if possible
+try_load_agent(dqn, path)
+
+# Train
+avg_reward = 0
+avg_loss = 0
+steps = 0
+sync_step = 0
+for e in range(1, epochs + 1):
+    state = T.from_numpy(env.reset()).to(T.float32)
     done = False
     while not done:
-        prev_state = state
-        action = net.take_action(state)
+        action = act(state, exploration)
 
-        # Update game
-        state, reward, done, _ = env.step(action)
-        state = T.from_numpy(state).to(device).to(T.float32)
-        total_reward += reward
+        new_state, reward, done, _ = env.step(action)
+        new_state = T.from_numpy(new_state).to(T.float32)
 
-        # Memorize
-        env_steps.append((action, prev_state, state, reward, done))
+        mem.add(state, new_state, action, reward, float(done))
 
-        if len(env_steps) == max_steps:
-            break
-
-    env.close()
-
-    # Learn #
-    shuffle(env_steps)
-
-    for step in env_steps:
-        net.learn(step)
-
-    # Update exploration rate
-    net.exploration_rate *= net.exploration_decay
-
-    return len(env_steps), total_reward
-
-
-def train_batch(env, epochs):
-    avg_steps = 0
-    avg_reward = 0
-    for e in range(1, epochs + 1):
-        if e % print_freq == 0:
-            print(f'Epoch {e:4d}\tAverage steps : {avg_steps / print_freq:.1f}\tAverage total reward : {avg_reward / print_freq:.1f}')
-            avg_steps = 0
-            avg_reward = 0
-
-        steps, reward = train_game(env, max_steps=max_steps)
-        avg_steps += steps
+        state = new_state
+        steps += 1
         avg_reward += reward
 
-    # Save
-    if save:
-        T.save(net.state_dict(), path)
-        print('Model trained and saved')
+    if e % print_freq == 0:
+        print(f'Epoch {e:5d} Reward {avg_reward / print_freq:<3.0f} Loss {avg_loss / steps:<6.4f} Exploration {exploration:<4.2f}')
+        avg_reward = avg_loss = steps = 0
 
+    if e % save_freq == 0:
+        save()
+    
+save()
 
-def test_game(env, render=False, max_steps=-1):
-    '''
-        Test on one game
-    - return : (steps, total_reward)
-    '''
-    steps = 0
+# Play
+for i in count():
     total_reward = 0
-    state = env.reset()
+    state = T.from_numpy(env.reset()).to(T.float32)
     done = False
-    with T.no_grad():
-        while not done:
-            state = T.tensor(state, dtype=T.float32, device=device)
+    while not done:
+        action = act(state, 0)
 
-            # Guess action
-            action = net.guess_action(state)
+        new_state, reward, done, _ = env.step(action)
+        total_reward += reward
+        new_state = T.from_numpy(new_state).to(T.float32)
 
-            # Update game
-            state, _, done, _ = env.step(action)
+        env.render()
 
-            if render:
-                env.render()
-
-            steps += 1
-
-            if steps == max_steps:
-                break
-
+        state = new_state
+    
     env.close()
 
-    return steps, total_reward
-
-
-def test_batch(env, games=20):
-    '''
-        Tests the agent on multiple games,
-    displays the results
-    '''
-    avg_steps, avg_reward = 0, 0
-    for _ in range(games):
-        steps, reward = test_game(env, max_steps=max_steps)
-        avg_steps += steps
-        avg_reward += reward
-
-    avg_steps /= games
-    avg_reward /= games
-
-    print('Test ended :')
-    print(f'- Average steps : {avg_steps:.1f}')
-    print(f'- Average total reward : {avg_steps:.1f}')
-
-
-# Params
-train = True
-test = True
-n_display = 3
-save = False
-epochs = 200
-print_freq = 10
-max_steps = 200
-device = T.device('cpu') # CPU is better for minibatches T.device('cuda:0' if T.cuda.is_available() else 'cpu')
-path = models_dir + '/dqn'
-T.manual_seed(314159265)
-
-# Env
-env_name = 'CartPole-v1' # 'MountainCar-v0'
-env = gym.make(env_name)
-env.seed(314159265)
-
-# Net
-net = Net(env.observation_space.shape[0], env.action_space.n, 128, lr=2e-4, discount_rate=.92, exploration_decay=.98)
-net.to(device)
-
-# !!! Be careful, the exploration rate is reset when the model is loaded
-if save and os.path.exists(path):
-    net.load_state_dict(T.load(path))
-    print('Model loaded')
-
-# Training
-if train:
-    train_batch(env, epochs)
-
-# Test
-if test:
-    test_batch(env)
-
-# Display
-for _ in range(n_display):
-    print(test_game(env, True, max_steps=1000))
-
+    print(f'Test {i:3d} Reward : {total_reward}')
