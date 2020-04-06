@@ -49,7 +49,8 @@ def learn(batch):
     log_probs = T.cat([b[2] for b in batch])
 
     rewards = discounted_rewards(rewards)
-    advantages = rewards - critic(states)
+    values = critic(states).squeeze(1)
+    advantages = rewards - values
 
     # Works also : loss_actor = -(log_probs * advantages.detach()).mean()
     loss_actor = (-1 / len(buf.data)) * (log_probs * advantages.detach()).sum()
@@ -144,11 +145,11 @@ if train:
 
         avg_reward += total_reward
 
-        if e % print_freq == 0 and e != 0:
+        if e % print_freq == 0:
             print(f'Epoch {e:4d} Avg reward {avg_reward / print_freq:3.1f}')
             avg_reward = 0
 
-        if e % save_freq == 0 and e != 0:
+        if e % save_freq == 0:
             save_agent(actor, path_actor)
             save_agent(critic, path_critic)
             print('Model saved')
