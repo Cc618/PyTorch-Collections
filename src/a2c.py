@@ -1,4 +1,4 @@
-# REINFORCE algorithm on CartPole env
+# A2C algorithm on CartPole env
 
 import os
 import gym

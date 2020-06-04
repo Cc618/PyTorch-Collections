@@ -25,8 +25,7 @@ class Buffer:
     
     def finish_game(self):
         # Learn from minibatches
-        # TODO : Some trajs are ignored
-        for i in range(0, len(self.data) - self.batch_size + 1, self.batch_size):
+        for i in range(0, len(self.data), self.batch_size):
             batch = self.data[i : min(len(self.data), i + self.batch_size)]
             self.learn(batch)
 
@@ -74,7 +73,6 @@ def learn(batch):
     actions = T.Tensor([b[3] for b in batch])
 
     rewards = discounted_rewards(rewards)
-    # TODO : Normalize : rewards = (rewards - rewards.mean()) / rewards.std()
     values = critic(states).squeeze(1)
     advantages = rewards - values
 
@@ -96,20 +94,20 @@ def learn(batch):
         loss_actor.backward()
         opti_actor.step()
 
-        value = critic(states).squeeze()
-        loss_critic = critic_ratio * F.smooth_l1_loss(value, rewards).mean()
+        value = critic(states)
+        loss_critic = critic_ratio * F.mse_loss(value, rewards.view(-1, 1)).mean()
         opti_critic.zero_grad()
         loss_critic.backward()
         opti_critic.step()
 
 
-lr = 1e-3
+lr = 5e-4
 n_hidden = 128
 discount_factor = .99
-batch_size = 10
+batch_size = 100
 ppo_epochs = 4
 ppo_ratio = .2
-entropy_ratio = 1e-3
+entropy_ratio = 1e-2
 critic_ratio = 1
 
 print_freq = 20
@@ -169,7 +167,8 @@ while True:
         # Update game
         new_state, reward, done, _ = env.step(action)
 
-        # TODO : env.render()
+        # Display
+        # env.render()
 
         # Memorize
         buf.add(state, reward, log_prob, action)
